@@ -5,6 +5,34 @@ from settings import *
 from modules import *
 import requests
 
+class VocabEntry:
+    def __init__(self, word2id):
+        self.word2id = word2id
+        # Build an id to word mapping.
+        self.id2word_ = {v: k for k, v in word2id.items()}
+    
+    @classmethod
+    def from_corpus(cls, fname, withpad=False):
+        # fname should be the path to your vocab file (vocab.txt)
+        word2id = {}
+        with open(fname, encoding='utf-8') as fin:
+            for i, line in enumerate(fin):
+                parts = line.strip().split()
+                if parts:
+                    word = parts[0]
+                    word2id[word] = i + 1  # starting index from 1
+        return cls(word2id)
+    
+    def __getitem__(self, word):
+        return self.word2id.get(word, 0)
+    
+    def __len__(self):
+        return len(self.word2id)
+    
+    def id2word(self, idx):
+        return self.id2word_.get(idx, "<unk>")
+
+
 
 
 def print_top_words(beta, feature_names, n_top_words=20, common_texts=None):
@@ -194,6 +222,8 @@ def todatapath(name):
         path = TMN_ADDR
     elif name == 'Reuters':
         path = Reuters_ADDR
+    elif name.lower() == 'instagram':
+    	return INSTAGRAM_ADDR
     else:
         assert False, 'Unknown dataset {}'.format(name)
     return path

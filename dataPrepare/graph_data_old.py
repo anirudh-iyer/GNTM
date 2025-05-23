@@ -1,18 +1,18 @@
 import torch
 from torch_geometric.data import InMemoryDataset
 from torch_geometric.data import Data
-#from dataPrepare.utils import *
-from utils import *
+from dataPrepare.utils import *
 import pandas as pd
 from collections import Counter
 from torch_sparse import SparseTensor
-import numpy as np
+
 
 class PreTextData(object):
     """docstring for MonoTextData"""
 
     def __init__(self, fname, ngram=3, min_length=10, max_length=None, vocab=None, edge_threshold=10):
         super(PreTextData, self).__init__()
+
         self.data, self.vocab, self.dropped, self.labels, self.word_count, self.train_split, self.itemids \
             = self._read_corpus(fname, vocab, max_length=max_length, min_length=min_length)
         self.ngram = ngram
@@ -31,6 +31,7 @@ class PreTextData(object):
         csvdata = pd.read_csv(fname, header=0, dtype={'label': int, 'train': int})
         for i, ss in enumerate(csvdata[['label', 'content', 'train', 'idx']].values):
             lb = ss[0]
+            # regard ; as one word, which can be deleted if needed
             try:
                 split_line = ss[1].split()
             except:
@@ -55,7 +56,7 @@ class PreTextData(object):
         print('read corpus done!')
         return data, vocab, dropped, labels, word_count, tran_split, itemids
 
-    def pairVocab(self, threshold=15):
+    def pairVocab(self, threshold=15):  # 20 for APNEW IMDB  15 for 20News Ag
         pair_s = []
         n = self.ngram
         for sent in self.data:
@@ -71,7 +72,7 @@ class PreTextData(object):
         sorted_key = sorted(self.pair_dct.keys(), key=lambda x: self.pair_dct[x], reverse=True)
         for i, key in enumerate(sorted_key):
             self.pair_dct[key] = i + 1  # start from 1
-        self.whole_edge = np.array([k for k in sorted_key]).transpose()  # edge: i->j
+        self.whole_edge = np.array([k for k in sorted_key]).transpose()  ### 每一行为出度邻居a_{i,j} i->j
         self.whole_edge_w = np.array([coun_dct[k] for k in sorted_key])
         print('pairVocab done!')
         print(self.whole_edge.shape)
@@ -81,6 +82,8 @@ class PreTextData(object):
         L = len(sent)
         pair_s = []
         edge_ids = []
+        # for i in range(0, n-1):
+        #     pair = np.array([sent[i:L-n+1+i], sent[n-1:L]]).transpose()
         nl = min(n + 1, L)
         for i in range(1, nl):
             pair = np.array([sent[:-i], sent[i:]]).transpose()
@@ -95,11 +98,13 @@ class PreTextData(object):
                 edge_id = self.pair_dct[k]
             except:
                 continue
+
             r.append(k[0])
             c.append(k[1])
             v.append(dct[k])
             edge_ids.append(edge_id)
-        edge_index = np.array([r, c])  # edge: i->j
+        # edge_index = np.array([c, r]) ### 每一行为入度邻居a_{i,j} j->i
+        edge_index = np.array([r, c])  ### 每一行为出度邻居a_{i,j} i->j
         edge_w = np.array(v)
         idxs = np.unique(edge_index.reshape(-1))
         idx_w_dict = Counter(sent)
@@ -120,7 +125,11 @@ class PreTextData(object):
             all_idxs = np.array(sidxs)
         else:
             all_idxs = idxs
+        # idxs.dtype=np.int
         assert lens == len(sent)
+        # if max(all_idxs)>10000:
+        #     import ipdb
+        #     ipdb.set_trace()
         if len(idxs) > 0:
             idxs_map = np.zeros(max(all_idxs) + 1)
             idxs_map[all_idxs] = range(len(all_idxs))
@@ -146,7 +155,7 @@ class MyData(Data):
         if y is not None:
             self.y = y
 
-    def __inc__(self, key, value, *args, **kwargs):
+    def __inc__(self, key, value,*args, **kwargs):
         if 'index' in key or 'face' in key:
             return self.num_nodes
         else:
@@ -164,18 +173,21 @@ class MyData(Data):
 
 
 class GraphDataset(InMemoryDataset):
-    def __init__(self, root, ngram=3, vocab=None, transform=None, pre_transform=None, STOPWORD=False, edge_threshold=10):
+    def __init__(self, root, ngram=3, vocab=None, transform=None, pre_transform=None, STOPWORD=False,
+                 edge_threshold=10):
         self.rootPath = root
-        self.stop_str = '_stop' if STOPWORD else ''  
+        self.stop_str = '_stop' if STOPWORD else ''
         self.edge_threshold = edge_threshold
         if vocab is None:
-            # Use our custom VocabEntry from utils (if available) to read overall_clean.csv
-            self.vocab = VocabEntry.from_corpus(self.rootPath + '/vocab.txt', withpad=False)
+            self.vocab = VocabEntry.from_corpus(self.rootPath + '/vocab%s.txt' % self.stop_str, withpad=False)
+            # self.vocab.add(';')
         else:
             self.vocab = vocab
+
         self.ngram = ngram
         super(GraphDataset, self).__init__(root, transform, pre_transform)
-        self.data, self.slices, self.whole_edge, self.word_count, self.dropped, self.whole_edge_w = torch.load(self.processed_paths[0])
+        self.data, self.slices, self.whole_edge, \
+        self.word_count, self.dropped, self.whole_edge_w = torch.load(self.processed_paths[0])
 
     @property
     def raw_file_names(self):
@@ -183,19 +195,19 @@ class GraphDataset(InMemoryDataset):
 
     @property
     def processed_file_names(self):
-        return ['graph_nragm%d_dataset%s.pt' % (self.ngram, self.stop_str)]
+        return [self.rootPath + '/graph_nragm%d_dataset%s.pt' % (self.ngram, self.stop_str)]
 
     def download(self):
         pass
 
     def process(self):
-        # Use the overall_clean.csv file (which is our processed Instagram data)
-        dataset = PreTextData(self.rootPath + '/overall_stop.csv', ngram=self.ngram,
-                               vocab=self.vocab, min_length=5, max_length=None,
-                               edge_threshold=self.edge_threshold)
+        dataset = PreTextData(self.rootPath + '/overall%s.csv' % self.stop_str, ngram=self.ngram,
+                              vocab=self.vocab, min_length=5, max_length=None,
+                              edge_threshold=self.edge_threshold)  # TODO important parameter for different datasets
         data_list = []
         used_list = []
         for i in range(len(dataset)):
+            # for i in range(10):
             sent = dataset.data[i]
             label = dataset.labels[i]
             train = dataset.train_split[i]
@@ -212,30 +224,25 @@ class GraphDataset(InMemoryDataset):
                 d = MyData(x=x, edge_w=edge_w, edge_index=edge_index,
                            x_w=idx_w, edge_id=edge_id, y=y)
                 d.train = train
+                # d.gram = gram
                 d.graphy = y
+                # d.gramlength = L
                 data_list.append(d)
         np.save(self.rootPath + '/used_list', used_list)
         data, slices = self.collate(data_list)
         torch.save((data, slices, dataset.whole_edge, dataset.word_count, dataset.dropped, dataset.whole_edge_w),
                    self.processed_paths[0])
 
-if __name__ == "__main__":
-    import argparse
-    from settings import INSTAGRAM_ADDR
 
-    p = argparse.ArgumentParser()
-    p.add_argument("--root", default=INSTAGRAM_ADDR)
-    p.add_argument("--ngram", type=int, default=5)
-    p.add_argument("--edge_threshold", type=int, default=10)
-    p.add_argument("--STOPWORD", action="store_true")
-    args = p.parse_args()
+if __name__ == '__main__':
+    from settings import *
+    from dataPrepare.graph_data import GraphDataset
 
-    ds = GraphDataset(
-        root=args.root,
-        ngram=args.ngram,
-        STOPWORD=args.STOPWORD,
-        edge_threshold=args.edge_threshold
-    )
-    print("→ Processed dataset:")
-    print("  documents:", len(ds))
-    print("  edges:", ds.whole_edge.shape)
+    data = GraphDataset(root=NEWS20_ADDR, STOPWORD=True, ngram=5, edge_threshold=10)
+    print('docs', len(data))
+    print('the whole edge set', data.whole_edge.shape)
+    print('data split',Counter(data.data.train.cpu().numpy()))
+    print('tokens', data.data.x_w.sum().item())
+    print('edges', data.data.edge_w.sum().item())
+    print('vocab', len(data.vocab))
+

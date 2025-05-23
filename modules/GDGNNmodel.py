@@ -13,10 +13,14 @@ def Expectation_log_Dirichlet(gamma):
 
 class GDGNNModel(nn.Module):
 
-    def __init__(self, args, word_vec, whole_edge):
+    def __init__(self, args, word_vec, whole_edge, seed_dict=None, seed_weight: float = 1.0):
         super(GDGNNModel, self).__init__()
         # encoder
         self.args = args
+
+        self.seed_dict = seed_dict or {}
+        self.seed_weight = args.seed_weight 
+
         if word_vec is None:
             self.word_vec = nn.Parameter(torch.Tensor(args.vocab_size, args.ni))
             nn.init.normal_(self.word_vec, std=0.01)
@@ -34,8 +38,25 @@ class GDGNNModel(nn.Module):
 
         self.word_vec_beta = nn.Parameter(torch.Tensor(args.vocab_size, args.ni))
         nn.init.normal_(self.word_vec_beta, std=0.01)
+
+        #prev unseeded implementation
         self.topic_vec = nn.Parameter(torch.Tensor(args.num_topic, args.ni))
-        nn.init.normal_(self.topic_vec)
+        nn.init.normal_(self.topic_vec) # old random init
+
+        # If we have seeds for topic k, initialize topic_vec[k] with the
+        # average of those word embeddings (word_vec_beta) instead:
+        init_topics = []
+        for k in range(args.num_topic):
+            seed_ids = self.seed_dict.get(k, [])
+            if len(seed_ids) > 0:
+                # use the decoder word embeddings for seeds
+                # (size [vocab_size, ni])
+                avg = self.word_vec_beta[seed_ids].mean(dim=0)
+            else:
+                avg = torch.randn(args.ni, device=self.topic_vec.device) * 0.01
+            init_topics.append(avg)
+        # overwrite topic_vec
+        self.topic_vec = nn.Parameter(torch.stack(init_topics, dim=0))
 
         self.topic_edge_vec = nn.Parameter(torch.Tensor(args.num_topic, 2 * args.ni))
         self.noedge_vec = nn.Parameter(torch.Tensor(1, 2 * args.ni))
@@ -88,7 +109,7 @@ class GDGNNModel(nn.Module):
             KL2 = torch.sum(phi * ((phi+1e-10).log() - Elogtheta[x_batch]), dim=-1)
         KL2 = myscattersum(idx_w * KL2, x_batch, size=size)  # B
 
-        if not self.args.eval and self.args.prior_type in ['Dir2','Gaussian'] and self.args.iter_ < self.args.iter_threahold:
+        if self.training and self.args.prior_type in ['Dir2','Gaussian'] and self.args.iter_ < self.args.iter_threahold:
             phi = theta[x_batch]
         
 
@@ -121,6 +142,15 @@ class GDGNNModel(nn.Module):
 
         # #### recon_word
         beta = self.get_beta()  # (K, V)
+
+        # --- new: penalize topics that don't put probability mass on their seeds
+        seed_loss = 0.0
+        for k, seed_ids in self.seed_dict.items():
+            if seed_ids:
+                p_w = beta[k, seed_ids]                    # [#seeds]
+                seed_loss += -torch.log(torch.clamp(p_w, min=1e-8)).mean()
+        seed_loss = self.seed_weight * seed_loss
+
 
         q_z = torch.distributions.RelaxedOneHotCategorical(temperature=self.args.temp, probs=phi)
         z = q_z.rsample([self.args.num_samp])  # (ns, B*len, K)
@@ -158,11 +188,11 @@ class GDGNNModel(nn.Module):
         z_edge_w = z_edge_w.permute(1, 0, 2)  # (ns,B,K)
         recon_edge = -(torch.clamp_min(beta_edge_s, 1e-10) / torch.clamp_min(z_edge_w, 1e-10)).log().sum(-1).mean(0)
 
-        if not self.args.eval and self.args.prior_type in ['Dir2', 'Gaussian'] and self.args.iter_ < self.args.iter_threahold:
-
-            loss = recon_word + KL1
+        # final loss: always include seed_loss
+        if self.training and self.args.prior_type in ['Dir2', 'Gaussian'] and self.args.iter_ < self.args.iter_threahold:
+            loss = recon_word + KL1 + seed_loss
         else:
-            loss = (recon_edge + recon_word + KL1 + KL2 +recon_structure)
+            loss = recon_edge + recon_word + KL1 + KL2 + recon_structure + seed_loss
         
 
         if torch.isnan(loss).sum() > 0 or loss.mean() > 1e20 or torch.isnan(recon_structure).sum() > 0:
@@ -179,9 +209,10 @@ class GDGNNModel(nn.Module):
         }
 
         return outputs
+    
 
     def loss(self, batch_data):
-        return self.forward(batch_data)
+        return self.forward(batch_data) 
 
     def get_beta(self):
         beta = torch.matmul(self.topic_vec, self.word_vec_beta.T)
