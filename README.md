@@ -3,21 +3,19 @@ known problems: 1. cant use cuda.
 3. Correlation label wont work if all your topics are labeled similarly.
 
 # Strategic Next Steps
-â Validate topic content
-Go beyond top-10 words: sample representative documents for each topic.
+1. Validate topic content
+2. Go beyond top-10 words: sample representative documents for each topic.
+3. Manually label if possible: does topic 9 actually represent a theme?
+4. Introduce neutral or benign seeds
+5. If all topics map to onetheme, introduce different themed seed topics to distinguish better.
 
-Manually label if possible: does topic 9 actually represent a hate theme?
-
-ð Introduce neutral or benign seeds
-If all topics map to hate, introduce non-hate seed topics to distinguish better.
-
-ð Use entropy/confidence to re-rank posts
+Use entropy/confidence to re-rank posts
 Use high-confidence, low-entropy docs to build a clean training set for classifiers.
 
 Use high-entropy posts for human review or multi-label models.
 
-ð§  Plot Topic Co-occurrence Matrix
-Try plotting cosine similarity or Î¸.T @ Î¸ to understand topic-topic similarity across documents.
+Plot Topic Co-occurrence Matrix
+Try plotting cosine similarity to understand topic-topic similarity across documents.
 
 If you'd like:
 
@@ -27,7 +25,7 @@ A table of "top N example posts per topic"
 
 Or converting any of this into a structured report / notebook
 
-# ? GNTM: Graph-based Neural Topic Model (Modified Version)
+# GNTM: Graph-based Neural Topic Model (Modified Version)
 
 This repository contains a **modified version of GNTM** (Graph-based Neural Topic Model) with the following key enhancements:
 
@@ -38,9 +36,9 @@ This repository contains a **modified version of GNTM** (Graph-based Neural Topi
 
 ---
 
-## ? Key Additions
+## Key Additions
 
-### ? Seed-Guided Topic Regularization
+### Seed-Guided Topic Regularization
 
 Inject domain knowledge using **seed words** to guide topic learning. Each topic is associated with a set of user-defined seed tokens, and the model is regularized to align with these seeds.
 
@@ -52,7 +50,7 @@ democracy politics
 election  politics
 ````
 
-? **Behavior**
+ **Behavior**
 
 * Tokens mapped to vocab indices
 * Regularization term added to loss
@@ -60,9 +58,9 @@ election  politics
 
 ---
 
-### ? Additional Evaluation Metrics
+### Additional Evaluation Metrics
 
-#### ? Topic Diversity
+####  Topic Diversity
 
 Measures distinctiveness of top-k words per topic:
 
@@ -70,11 +68,11 @@ Measures distinctiveness of top-k words per topic:
 Diversity@k = Unique(top-k words across all topics) / (k * num_topics)
 ```
 
-#### ? Seed Topic Document Coverage
+####  Seed Topic Document Coverage
 
 Number of documents strongly associated with each seeded topic.
 
-? **Sample Output**
+ **Sample Output**
 
 ```text
 Topic diversity is: 0.900 in top 5 words
@@ -86,7 +84,7 @@ Seed Topic 1: 41 documents
 
 ---
 
-## ? Data Preparation
+##  Data Preparation
 
 Each dataset must include:
 
@@ -96,7 +94,7 @@ Each dataset must include:
 * Word embeddings: `300d_words.npy`
 * Optional: `seed_words.xlsx` in `datasets/YourDataset/`
 
-? **Directory Structure**
+ **Directory Structure**
 
 ```
 datasets/
@@ -108,9 +106,9 @@ datasets/
 
 ---
 
-## ? Run Instructions
+## Run Instructions
 
-### ? Train the Model
+### Train the Model
 
 ```bash
 python main.py \
